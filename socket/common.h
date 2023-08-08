@@ -27,9 +27,9 @@ struct cmd {
 struct server_report {
     int bytes_received;
     int packets_received;
-    double elapsed_time;
-    double throughput;
-    double average_jitter;
+    uint64_t elapsed_time;
+    uint64_t throughput;
+    uint64_t average_jitter;
     char server_ip[INET_ADDRSTRLEN]; // IP address of the server
     int server_port;                 // Port number of the server
 };

@@ -10,7 +10,7 @@
 #include "common.h"
 
 #define SERVER_IP "192.168.1.2"  // Replace with the IP address of the server
-#define UDP_PORT 6788      // Replace with the port number used by the server
+#define DATA_PORT 6788      // Replace with the port number used by the server
 #define MAXLINE 1024
 
 #define TCP_PORT 6789
@@ -19,6 +19,7 @@
 char buffer[BUFFER_SIZE] = {0};
 struct sockaddr_in servaddr, cliaddr;
 struct server_report report;
+int tcp_socket = 0;
 
 int udp_server(void) 
 {
@@ -41,7 +42,7 @@ int udp_server(void)
 	// Filling server information
 	servaddr.sin_family = AF_INET; // IPv4
 	servaddr.sin_addr.s_addr = INADDR_ANY;
-	servaddr.sin_port = htons(UDP_PORT);
+	servaddr.sin_port = htons(DATA_PORT);
 
 	// Bind the socket with the server address
 	if ( bind(sockfd, (const struct sockaddr *)&servaddr,
@@ -68,7 +69,7 @@ int udp_server(void)
 			printf("UDP_SERVER: Rcv Failed\n");
 			exit(EXIT_FAILURE);
 		} else if(bytes_received == 0) {
-			printf("UDP_SERVER: End of Transmission\n");
+			printf("UDP_SERVER: End of Rcv from client\n");
 			break;
 		}
 
@@ -96,8 +97,6 @@ int udp_server(void)
 	report.throughput = (double)report.bytes_received / (1024 * 1024) / report.elapsed_time;
 	report.average_jitter = (report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0;
 
-
-
 	close(sockfd);
 	return 0;
 }
@@ -109,7 +108,97 @@ int udp_client()
 
 int tcp_server()
 {
-	printf("TCP Server Not Yet Implemented\n");
+	int server_fd, new_socket, valread;
+	struct sockaddr_in address;
+	int opt = 1;
+	int addrlen = sizeof(address);
+	int bytes_received, client_addr_len;
+	struct timeval start_time, end_time;
+	double jitter_sum = 0.0;
+	struct timeval prev_packet_time, curr_packet_time;	
+
+	/*  Create socket */
+	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+		perror("Socket creation failed");
+		exit(EXIT_FAILURE);
+	}
+
+	/* Set socket options */
+	if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
+		perror("Setsockopt failed");
+		exit(EXIT_FAILURE);
+	}
+
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = INADDR_ANY;
+	address.sin_port = htons(DATA_PORT);
+
+	/* Bind socket to the specified address and port */
+	if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+		perror("Bind failed");
+		exit(EXIT_FAILURE);
+	}
+
+	/* Listen for incoming connections */
+	if (listen(server_fd, 3) < 0) {
+		perror("Listen failed");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("Server is listening on port %d\n", DATA_PORT);
+
+	/* Accept a new connection */
+	if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+		perror("Accept failed");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("Connection accepted from %s:%d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+	memset((char *)&report, 0, sizeof(struct server_report));
+	gettimeofday(&start_time, NULL);
+	gettimeofday(&prev_packet_time, NULL);
+
+	while(1)
+	{
+		// Receive data from client
+		bytes_received = recv(new_socket, buffer, BUFFER_SIZE, 0);
+		if(bytes_received < 0)
+		{
+			printf("TCP_SERVER: Rcv Failed\n");
+			exit(EXIT_FAILURE);
+		} else if(bytes_received == 0) {
+			printf("TCP_SERVER: End of Recv from client \n");
+			break;
+		}
+
+		report.bytes_received += bytes_received;
+		report.packets_received++;
+
+		gettimeofday(&curr_packet_time, NULL);
+
+		// Calculate jitter for all packets after the first one
+		if (report.packets_received > 1) {
+			double curr_jitter = fabs((curr_packet_time.tv_sec - prev_packet_time.tv_sec) * 1000.0 +
+					(curr_packet_time.tv_usec - prev_packet_time.tv_usec) / 1000.0);
+			jitter_sum += curr_jitter;
+		}
+
+		prev_packet_time = curr_packet_time;
+
+		//buffer[bytes_received] = '\0';
+		//printf("Message client : %s\n", buffer);
+	}
+
+	/* server run time */
+	gettimeofday(&end_time, NULL);
+	report.elapsed_time = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;	
+	report.throughput = (double)report.bytes_received / (1024 * 1024) / report.elapsed_time;
+	report.average_jitter = (report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0;
+
+	close(new_socket);
+
+	return 0;
 }
 
 int tcp_client()
@@ -117,16 +206,36 @@ int tcp_client()
 	printf("TCP Client Not Yet Implemented\n");
 }
 
+double network_order_to_double(uint64_t value) {
+    double result;
+    uint64_t beValue = be64toh(value);
+    memcpy(&result, &beValue, sizeof(double));
+    return result;
+}
+
+uint64_t double_to_network_order(double value) {
+    uint64_t result;
+    memcpy(&result, &value, sizeof(uint64_t));
+    return htobe64(result);
+}
+
 int send_report(int sock)
 {
 	printf("Sending Report to the Client\n");
 	printf("Bytes rcvd %d Pkts rcvd %d\n", report.bytes_received, report.packets_received);
+	
 	report.bytes_received = htonl(report.bytes_received);
 	report.packets_received = htonl(report.packets_received);
+	report.elapsed_time = double_to_network_order(report.elapsed_time);
+	report.throughput = double_to_network_order(report.throughput);
+	report.average_jitter = double_to_network_order(report.average_jitter);
 
+	printf("Elapsed Time %.2f Seconds\n\t",network_order_to_double(report.elapsed_time));
+	printf("Throuhput %.2f Mbps\n\t",network_order_to_double(report.throughput));
+	printf("Average Jitter %.2f ms\n\t",network_order_to_double(report.average_jitter));
 	// Send the report to the client
 	send(sock, &report, sizeof(struct server_report), 0);
-}	
+}
 
 /* Server will continuously listens client cmds and process the cmds
  * starting udp serer/client
@@ -182,7 +291,7 @@ int wait_for_cmd(int sock)
 
 int init_tcp() 
 {
-	int server_fd, new_socket, valread;
+	int server_fd, valread;
 	struct sockaddr_in address;
 	int opt = 1;
 	int addrlen = sizeof(address);
@@ -218,29 +327,33 @@ int init_tcp()
 	printf("Server is listening on port %d\n", TCP_PORT);
 
 	/* Accept a new connection */
-	if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+	if ((tcp_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
 		perror("Accept failed");
 		exit(EXIT_FAILURE);
 	}
 
 	printf("Connection accepted from %s:%d\n", inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
-	/* wait for client cmds */
-	while(1)
-	{
-		wait_for_cmd(new_socket);
-		sleep(10);
-	}
-
-	/* Close the socket for this client */
-	close(new_socket);
+	/* Don´t close this socket, server continuously waiting on this socket for new cmds */
+	/* close(tcp_socket); */
 
 	return 0;
 }
 
+void init_server(void)
+{
+	init_tcp();
+}
+
 int main() {
 
-    init_tcp();
+    init_server();
+
+    while(1)
+    {
+	    wait_for_cmd(tcp_socket);
+	    sleep(10);
+    }
 
     return 0;
 }
