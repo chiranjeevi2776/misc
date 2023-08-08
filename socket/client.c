@@ -21,16 +21,9 @@ int sockfd;
 
 int init_tcp();
 
-int send_control_frame(int sock)
+int send_control_frame(int sock, int num)
 {
-    struct control cf;
-    cf.mode = htonl(MODE_TX);
-    cf.duration = htonl(10);
-    cf.type = htonl(TYPE_UDP);
-    cf.packet_len = htonl(100);
-    cf.reserved = 0;
-
-    send(sock, &cf, sizeof(struct control), 0);
+    send(sock, &test_case[num], sizeof(struct cmd), 0);
     printf("Control frame sent to server\n");
 }
 
@@ -138,47 +131,55 @@ int init_udp()
     return 0;
 }
 
+int receive_report(int sock)
+{
+	memset(buffer, 0, BUFFER_SIZE);
+
+	/* Receive a response from the server */
+ 	recv(sock, buffer, BUFFER_SIZE, 0);
+	printf("Received Report from the SERVER!!!!\n");
+
+	return 0;
+}
+
 int init_tcp() 
 {
-    int sock = 0;
-    struct sockaddr_in serv_addr;
-    char buffer[BUFFER_SIZE] = {0};
-    const char* message = "Hello, Server!";
+	int sock = 0, i = 0;
+	struct sockaddr_in serv_addr;
+	char buffer[BUFFER_SIZE] = {0};
+	const char* message = "Hello, Server!";
 
-    /* Create socket */
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
-    }
+	/* Create socket */
+	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("Socket creation failed");
+		exit(EXIT_FAILURE);
+	}
 
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(TCP_PORT);
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_port = htons(TCP_PORT);
 
-    /* Convert IPv4 and IPv6 addresses from text to binary form */
-    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
-        perror("Invalid address/ Address not supported");
-        exit(EXIT_FAILURE);
-    }
+	/* Convert IPv4 and IPv6 addresses from text to binary form */
+	if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+		perror("Invalid address/ Address not supported");
+		exit(EXIT_FAILURE);
+	}
 
-    /* Connect to the server */
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("Connection failed");
-        exit(EXIT_FAILURE);
-    }
+	/* Connect to the server */
+	if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+		perror("Connection failed");
+		exit(EXIT_FAILURE);
+	}
 
-    printf("Connected To Server \n");
-    send_control_frame(sock);
+	printf("Connected To Server \n");
+	for(i = 0; i < CURR_TEST_CNT; i++)
+		send_control_frame(sock, i);
 
-    /* Send a message to the server */
-    send(sock, message, strlen(message), 0);
-    printf("Message sent: %s\n", message);
+	/* Receive a response from the server */
+	read(sock, buffer, BUFFER_SIZE);
+	printf("Server response: %s\n", buffer);
 
-    /* Receive a response from the server */
-    read(sock, buffer, BUFFER_SIZE);
-    printf("Server response: %s\n", buffer);
-
-    close(sock);
-    return 0;
+	close(sock);
+	return 0;
 }
 
 int main()
@@ -188,3 +189,4 @@ int main()
 //    init_udp();
 
 }
+
