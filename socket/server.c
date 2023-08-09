@@ -271,6 +271,64 @@ int tcp_server()
 
 int tcp_client()
 {
+	int sockfd;
+	struct sockaddr_in server_addr;
+	struct timeval start_time, current_time;
+	double elapsed_time;
+	int total_duration = ntohl(global_cmd.duration); //Converting into ms
+
+	// Create socket
+	if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		perror("Socket creation failed");
+		exit(EXIT_FAILURE);
+	}
+
+	server_addr.sin_family = AF_INET;
+	server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+	server_addr.sin_port = htons(DATA_PORT);
+
+	// Connect to the server
+	if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+		perror("Connection failed");
+		close(sockfd);
+		exit(EXIT_FAILURE);
+	}
+
+	printf("TCP client is connected to %s:%d\n", SERVER_IP, DATA_PORT);
+
+	// Initialize the buffer with some data
+	memset(buffer, 'A', BUFFER_SIZE);
+
+	// Get the current time
+	gettimeofday(&start_time, NULL);
+
+	// Send data for given seconds
+	while (1) {
+		send(sockfd, buffer, ntohl(global_cmd.frame_len), 0);
+		gettimeofday(&current_time, NULL);
+		elapsed_time = (current_time.tv_sec - start_time.tv_sec) + (current_time.tv_usec - start_time.tv_usec) / 1000000.0;
+
+		if (elapsed_time >= total_duration) {
+			break;
+		}
+
+		if(ntohl(global_cmd.traffic_mode) == CONTINUOUS)
+			usleep(1000);
+		else
+			usleep(10*1000); /* 10msec */
+	}
+
+	/* Send Empty Msg to indicate End of TX */
+	{
+		char empty_data = '\0';
+		send(sockfd, &empty_data, 0, 0);
+	}
+
+
+	printf("Data sent for %d seconds\n", total_duration);
+
+	close(sockfd);
+	return 0;
 }
 
 double network_order_to_double(uint64_t value) {
@@ -423,6 +481,7 @@ int main() {
 
     while(1)
     {
+	    memset((uint8_t *)&global_cmd, 0, sizeof(struct cmd));
 	    wait_for_cmd(tcp_socket);
 	    sleep(5);
     }
