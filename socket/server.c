@@ -9,7 +9,7 @@
 #include <math.h>
 #include "common.h"
 
-#define SERVER_IP "192.168.1.2"  // Replace with the IP address of the server
+#define SERVER_IP "192.168.1.211"  // Replace with the IP address of the server
 #define DATA_PORT 6788      // Replace with the port number used by the server
 #define MAXLINE 1024
 
@@ -19,6 +19,7 @@
 char buffer[BUFFER_SIZE] = {0};
 struct sockaddr_in servaddr, cliaddr;
 struct server_report report;
+struct cmd global_cmd;
 int tcp_socket = 0;
 
 int udp_server(void) 
@@ -103,7 +104,74 @@ int udp_server(void)
 
 int udp_client()
 {
-	printf("UDP Client Not Yet Implemented\n");
+	int sockfd;
+	int total_duration = ntohl(global_cmd.duration); //Converting into ms
+	socklen_t addr_len = sizeof(servaddr);
+	struct timeval start_time, current_time;
+	double elapsed_time;
+
+	printf("UDP Clinet Started\n");
+     
+	// Create UDP socket
+	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		printf("socket creation failed");
+		exit(EXIT_FAILURE);
+	}
+
+	memset(&servaddr, 0, sizeof(servaddr));
+	memset(&cliaddr, 0, sizeof(cliaddr));
+
+	// Configure client address
+	cliaddr.sin_family = AF_INET;
+	cliaddr.sin_addr.s_addr = INADDR_ANY;
+	cliaddr.sin_port = htons(0);  // Bind to any available port
+
+	// Bind the socket to the client address
+	if (bind(sockfd, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) < 0) {
+		printf("bind failed");
+		exit(EXIT_FAILURE);
+	}
+
+	// Configure server address
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(DATA_PORT);
+	if (inet_pton(AF_INET, SERVER_IP, &(servaddr.sin_addr)) <= 0) {
+		perror("inet_pton failed");
+		exit(EXIT_FAILURE);
+	}
+       
+	// Get the current time
+	gettimeofday(&start_time, NULL);
+
+	memset(buffer, 'A', BUFFER_SIZE);
+
+	// Send data for given seconds
+	while (1) {
+		sendto(sockfd, buffer, ntohl(global_cmd.frame_len), 0, (struct sockaddr *)&servaddr, addr_len);
+		usleep(100);
+		gettimeofday(&current_time, NULL);
+		elapsed_time = (current_time.tv_sec - start_time.tv_sec) + (current_time.tv_usec - start_time.tv_usec) / 1000000.0;
+
+		if (elapsed_time >= total_duration) {
+			break;
+		}
+
+		if(ntohl(global_cmd.traffic_mode) == CONTINUOUS)
+			usleep(1000);
+		else
+			usleep(10*1000); /* 10msec */
+	}
+
+	/* Send Empty Msg to indicate End of TX */
+	{
+		char empty_data = '\0';
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&servaddr, addr_len);
+	}
+
+	// Close the socket
+	close(sockfd);
+
+	return 0;
 }
 
 int tcp_server()
@@ -203,7 +271,6 @@ int tcp_server()
 
 int tcp_client()
 {
-	printf("TCP Client Not Yet Implemented\n");
 }
 
 double network_order_to_double(uint64_t value) {
@@ -260,6 +327,8 @@ int wait_for_cmd(int sock)
 	printf("\tFrame len %d\n", ntohl(cf->frame_len));
 	printf("\treserved %d\n\n", ntohl(cf->reserved));
 
+	memcpy((uint8_t *)&global_cmd, buffer, sizeof(struct cmd));
+
 	/* Client ==> Server */
 	if(ntohl(cf->client_role) == UPLINK)
 	{
@@ -274,13 +343,16 @@ int wait_for_cmd(int sock)
 		}
 	} else if(ntohl(cf->client_role) == DOWNLINK) {
 		printf("DOWNLINK:\n\t");
+		sleep(10);
 		if(ntohl(cf->traffic_type) == UDP)
 		{
 			printf("UDP CLIENT STARTED\n\t");
 			udp_client();
+			printf("UDP CLIENT FINISHED\n\t");
 		} else if(ntohl(cf->traffic_type) == TCP) {
 			printf("TCP CLEINT STARTED\n\t");
 			tcp_client();
+			printf("TCP CLEINT FINISHED\n\t");
 		}
 	}
 
@@ -352,7 +424,7 @@ int main() {
     while(1)
     {
 	    wait_for_cmd(tcp_socket);
-	    sleep(10);
+	    sleep(5);
     }
 
     return 0;
