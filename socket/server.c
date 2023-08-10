@@ -22,13 +22,26 @@ struct server_report report;
 struct cmd global_cmd;
 int tcp_socket = 0;
 
+double network_order_to_double(uint64_t value) {
+    double result;
+    uint64_t beValue = be64toh(value);
+    memcpy(&result, &beValue, sizeof(double));
+    return result;
+}
+
+uint64_t double_to_network_order(double value) {
+    uint64_t result;
+    memcpy(&result, &value, sizeof(uint64_t));
+    return htobe64(result);
+}
+
 int udp_server(void) 
 {
 	int sockfd;
 	char *hello = "Hello";
 	int len, bytes_received, client_addr_len;
 	struct timeval start_time, end_time;
-	double jitter_sum = 0.0;
+	double jitter_sum = 0.0, throughput = 0.0;
 	struct timeval prev_packet_time, curr_packet_time;	
 
 	// Creating socket file descriptor
@@ -94,10 +107,15 @@ int udp_server(void)
 
 	/* server run time */
 	gettimeofday(&end_time, NULL);
-	report.elapsed_time = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;	
-	report.throughput = (double)report.bytes_received / (1024 * 1024) / report.elapsed_time;
-	report.average_jitter = (report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0;
-
+	report.elapsed_time = double_to_network_order((end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0);	
+	throughput = (double)(report.bytes_received * 8)/ (1000000 * ntohl(global_cmd.duration));
+#if 0
+	printf("ELAPSED TIME %f \n",  (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0);
+	printf("Jitter %f \n", ((report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0));
+	printf("Throughput %f \n", throughput);
+#endif
+	report.throughput = double_to_network_order(throughput);
+	report.average_jitter = double_to_network_order((report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0);
 	close(sockfd);
 	return 0;
 }
@@ -157,7 +175,7 @@ int udp_client()
 		}
 
 		if(ntohl(global_cmd.traffic_mode) == CONTINUOUS)
-			usleep(1000);
+			usleep(2000);
 		else
 			usleep(10*1000); /* 10msec */
 	}
@@ -182,7 +200,7 @@ int tcp_server()
 	int addrlen = sizeof(address);
 	int bytes_received, client_addr_len;
 	struct timeval start_time, end_time;
-	double jitter_sum = 0.0;
+	double jitter_sum = 0.0, throughput = 0.0;
 	struct timeval prev_packet_time, curr_packet_time;	
 
 	/*  Create socket */
@@ -253,16 +271,19 @@ int tcp_server()
 		}
 
 		prev_packet_time = curr_packet_time;
-
-		//buffer[bytes_received] = '\0';
-		//printf("Message client : %s\n", buffer);
 	}
 
 	/* server run time */
 	gettimeofday(&end_time, NULL);
-	report.elapsed_time = (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0;	
-	report.throughput = (double)report.bytes_received / (1024 * 1024) / report.elapsed_time;
-	report.average_jitter = (report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0;
+	report.elapsed_time = double_to_network_order((end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0);	
+	throughput = (double)(report.bytes_received * 8)/ (1000000 * ntohl(global_cmd.duration));
+#if 0
+	printf("ELAPSED TIME %f \n",  (end_time.tv_sec - start_time.tv_sec) + (end_time.tv_usec - start_time.tv_usec) / 1000000.0);
+	printf("Jitter %f \n", ((report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0));
+	printf("Throughput %f \n", throughput);
+#endif
+	report.throughput = double_to_network_order(throughput);
+	report.average_jitter = double_to_network_order((report.packets_received > 1) ? (jitter_sum / (report.packets_received - 1)) : 0.0);
 
 	close(new_socket);
 
@@ -331,19 +352,6 @@ int tcp_client()
 	return 0;
 }
 
-double network_order_to_double(uint64_t value) {
-    double result;
-    uint64_t beValue = be64toh(value);
-    memcpy(&result, &beValue, sizeof(double));
-    return result;
-}
-
-uint64_t double_to_network_order(double value) {
-    uint64_t result;
-    memcpy(&result, &value, sizeof(uint64_t));
-    return htobe64(result);
-}
-
 int send_report(int sock)
 {
 	printf("Sending Report to the Client\n");
@@ -351,9 +359,11 @@ int send_report(int sock)
 	
 	report.bytes_received = htonl(report.bytes_received);
 	report.packets_received = htonl(report.packets_received);
+#if 0
 	report.elapsed_time = double_to_network_order(report.elapsed_time);
 	report.throughput = double_to_network_order(report.throughput);
 	report.average_jitter = double_to_network_order(report.average_jitter);
+#endif
 
 	printf("Elapsed Time %.2f Seconds\n\t",network_order_to_double(report.elapsed_time));
 	printf("Throuhput %.2f Mbps\n\t",network_order_to_double(report.throughput));
@@ -387,7 +397,7 @@ int wait_for_cmd(int sock)
 
 	memcpy((uint8_t *)&global_cmd, buffer, sizeof(struct cmd));
 
-	/* Client ==> Server */
+	/* From Client ==> To Server */
 	if(ntohl(cf->client_role) == UPLINK)
 	{
 		printf("UPLINK:\n\t");
@@ -413,8 +423,6 @@ int wait_for_cmd(int sock)
 			printf("TCP CLEINT FINISHED\n\t");
 		}
 	}
-
-	send_report(sock);
 
 	return 0;
 }
@@ -479,11 +487,15 @@ int main() {
 
     init_server();
 
+    /* Wait for cmds from the client */
     while(1)
     {
 	    memset((uint8_t *)&global_cmd, 0, sizeof(struct cmd));
 	    wait_for_cmd(tcp_socket);
-	    sleep(5);
+
+	    /* send the report at the end of every test */
+	    if(ntohl(global_cmd.client_role) == UPLINK)
+		    send_report(tcp_socket);
     }
 
     return 0;

@@ -30,7 +30,7 @@ struct server_report {
     uint64_t elapsed_time;
     uint64_t throughput;
     uint64_t average_jitter;
-    char server_ip[INET_ADDRSTRLEN]; // IP address of the server
+ // char server_ip[INET_ADDRSTRLEN]; // IP address of the server
     int server_port;                 // Port number of the server
 };
 
