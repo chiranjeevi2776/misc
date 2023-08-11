@@ -122,7 +122,7 @@ int udp_server(void)
 
 int udp_client()
 {
-	int sockfd;
+	int sockfd, pkt_count = 0;
 	int total_duration = ntohl(global_cmd.duration); //Converting into ms
 	socklen_t addr_len = sizeof(servaddr);
 	struct timeval start_time, current_time;
@@ -166,10 +166,10 @@ int udp_client()
 	// Send data for given seconds
 	while (1) {
 		sendto(sockfd, buffer, ntohl(global_cmd.frame_len), 0, (struct sockaddr *)&servaddr, addr_len);
-		usleep(100);
 		gettimeofday(&current_time, NULL);
 		elapsed_time = (current_time.tv_sec - start_time.tv_sec) + (current_time.tv_usec - start_time.tv_usec) / 1000000.0;
 
+		pkt_count++;
 		if (elapsed_time >= total_duration) {
 			break;
 		}
@@ -180,9 +180,15 @@ int udp_client()
 			usleep(10*1000); /* 10msec */
 	}
 
+	printf("No of pkts sent %d \n", pkt_count);
 	/* Send Empty Msg to indicate End of TX */
 	{
 		char empty_data = '\0';
+		sleep(1);
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&servaddr, addr_len);
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&servaddr, addr_len);
+		sleep(1);
+		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&servaddr, addr_len);
 		sendto(sockfd, &empty_data, 0, 0, (struct sockaddr *)&servaddr, addr_len);
 	}
 
@@ -342,6 +348,14 @@ int tcp_client()
 	/* Send Empty Msg to indicate End of TX */
 	{
 		char empty_data = '\0';
+		sleep(1);
+		send(sockfd, &empty_data, 0, 0);
+		send(sockfd, &empty_data, 0, 0);
+		sleep(1);
+		send(sockfd, &empty_data, 0, 0);
+		send(sockfd, &empty_data, 0, 0);
+		sleep(1);
+		send(sockfd, &empty_data, 0, 0);
 		send(sockfd, &empty_data, 0, 0);
 	}
 
