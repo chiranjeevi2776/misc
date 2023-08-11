@@ -207,7 +207,11 @@ int tcp_server()
 	int bytes_received, client_addr_len;
 	struct timeval start_time, end_time;
 	double jitter_sum = 0.0, throughput = 0.0;
-	struct timeval prev_packet_time, curr_packet_time;	
+	struct timeval prev_packet_time, curr_packet_time, current_time;
+	struct timeval timeout;
+	fd_set readfds;
+	int ret, total_duration_ms = ntohl(global_cmd.duration) * 1000 + 10000;
+
 
 	/*  Create socket */
 	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
@@ -253,30 +257,59 @@ int tcp_server()
 
 	while(1)
 	{
-		// Receive data from client
-		bytes_received = recv(new_socket, buffer, BUFFER_SIZE, 0);
-		if(bytes_received < 0)
-		{
-			printf("TCP_SERVER: Rcv Failed\n");
-			exit(EXIT_FAILURE);
-		} else if(bytes_received == 0) {
-			printf("TCP_SERVER: End of Recv from client \n");
+		int remaining_time;
+
+		gettimeofday(&current_time, NULL);
+		remaining_time = total_duration_ms - ((current_time.tv_sec - start_time.tv_sec) * 1000 +
+				(current_time.tv_usec - start_time.tv_usec) / 1000);
+
+		if (remaining_time <= 0) {
+			printf("Server Timeout expired \n");
 			break;
 		}
 
-		report.bytes_received += bytes_received;
-		report.packets_received++;
+		timeout.tv_sec = remaining_time / 1000;
+		timeout.tv_usec = (remaining_time % 1000) * 1000;
 
-		gettimeofday(&curr_packet_time, NULL);
-
-		// Calculate jitter for all packets after the first one
-		if (report.packets_received > 1) {
-			double curr_jitter = fabs((curr_packet_time.tv_sec - prev_packet_time.tv_sec) * 1000.0 +
-					(curr_packet_time.tv_usec - prev_packet_time.tv_usec) / 1000.0);
-			jitter_sum += curr_jitter;
+		FD_ZERO(&readfds);
+		FD_SET(new_socket, &readfds);
+		ret = select(new_socket + 1, &readfds, NULL, NULL, &timeout);
+		if (ret == 0) {
+			// Timeout occurred, no data received
+			printf("Select Timeout: No data received within %d msec \n", remaining_time);
+			break;  // Exit the loop after timeout
+		} else if (ret < 0) {
+			perror("select() error");
+			break;
 		}
 
-		prev_packet_time = curr_packet_time;
+		// Receive data from client
+		if (FD_ISSET(new_socket, &readfds))
+	       	{
+			bytes_received = recv(new_socket, buffer, BUFFER_SIZE, 0);
+			if(bytes_received < 0)
+			{
+				printf("TCP_SERVER: Rcv Failed\n");
+				exit(EXIT_FAILURE);
+			} else if(bytes_received == 0) {
+				printf("TCP_SERVER: End of Recv from client \n");
+				break;
+			}
+
+			report.bytes_received += bytes_received;
+			report.packets_received++;
+
+			gettimeofday(&curr_packet_time, NULL);
+
+			// Calculate jitter for all packets after the first one
+			if (report.packets_received > 1) {
+				double curr_jitter = fabs((curr_packet_time.tv_sec - prev_packet_time.tv_sec) * 1000.0 +
+						(curr_packet_time.tv_usec - prev_packet_time.tv_usec) / 1000.0);
+				jitter_sum += curr_jitter;
+			}
+
+			prev_packet_time = curr_packet_time;
+		}
 	}
 
 	/* server run time */
