@@ -104,6 +104,8 @@ int main() {
         close(new_sockfd);
     }
 
+    fun();
+    traffic_gen_start();
     close(sockfd);
     return 0;
 }

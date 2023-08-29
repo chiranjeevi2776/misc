@@ -10,10 +10,10 @@
 #include "common.h"
 
 #define SERVER_IP "192.168.1.211"  // Replace with the IP address of the server
-#define DATA_PORT 6788      // Replace with the port number used by the server
+#define DATA_PORT 7777      // Replace with the port number used by the server
 #define MAXLINE 1024
 
-#define TCP_PORT 6789
+#define TCP_PORT 6666
 #define BUFFER_SIZE 1024
 
 char buffer[BUFFER_SIZE] = {0};
