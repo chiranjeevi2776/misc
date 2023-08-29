@@ -106,7 +106,7 @@ def tcp_client(cmd_structure):
         while time.time() - start_time < cmd_structure['duration']:
             message = b'x' * cmd_structure['frame_len']  # Creating a message with specified frame length
             client_socket.sendall(message)
-            time.sleep(1)  # Sending messages every 1 second
+            time.sleep(10/1000)  # Sending messages every 1 second
 
         print("Data transmission finished.")
         
@@ -157,7 +157,7 @@ def process_client_cmd(ctrl_socket):
             print("UDP CLIENT FINISHED")
         elif cmd_structure['traffic_type'] == TCP:
             print("TCP CLIENT STARTED")
-            # Implement tcp_client()
+            tcp_client(cmd_structure)
             print("TCP CLIENT FINISHED")
 
 def main():
