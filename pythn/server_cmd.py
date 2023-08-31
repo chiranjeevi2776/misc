@@ -14,6 +14,9 @@ TCP = 2
 CONTINUOUS = 1
 DELAYED = 2
 
+#in seconds
+EXTRA_TIMEOUT = 5
+
 # Define the message structure using a Python dictionary
 cmd_structure = {
     'client_role': 0,
@@ -24,7 +27,7 @@ cmd_structure = {
     'reserved': 0
 }
 
-def tcp_server(ctrl_socket):
+def tcp_server(ctrl_socket, cmd_structure):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_address = ('0.0.0.0', 7777)  # Listen on all available network interfaces
     server_socket.bind(server_address)
@@ -37,16 +40,31 @@ def tcp_server(ctrl_socket):
     packet_count = 0
     total_bytes_received = 0
     start_time = time.time()
+    remaining_timeout = cmd_structure['duration'] + EXTRA_TIMEOUT
 
     try:
         while True:
-            data = client_socket.recv(1024)
-            if not data:
-                print("Received empty message. Closing the connection.")
+            client_socket.settimeout(remaining_timeout)  # Set the current remaining timeout
+            try:
+                data = client_socket.recv(1024)
+                if not data:
+                    print("Received empty message. Closing the connection.")
+                    break
+                packet_count += 1
+                total_bytes_received += len(data)
+                print(f"Received message: {data.decode('utf-8')}")
+
+            except socket.timeout:
+                print(f"No data received for {remaining_timeout:.2f} seconds. Closing connection.")
                 break
-            packet_count += 1
-            total_bytes_received += len(data)
-            print(f"Received message: {data.decode('utf-8')}")
+            except BlockingIOError:
+                print("BlockingIOError caught. Setting socket to non-blocking.")
+                client_socket.setblocking(False)  # Set the socket to non-blocking
+                break
+            finally:
+                elapsed_time = time.time() - start_time
+                remaining_timeout = max(0, (cmd_structure['duration'] + EXTRA_TIMEOUT) - elapsed_time)
+                print(f"Remaining timeout for data: {remaining_timeout:.2f} seconds.")
 
     finally:
         # Calculate statistics
@@ -146,7 +164,7 @@ def process_client_cmd(ctrl_socket):
             # Implement udp_server()
         elif cmd_structure['traffic_type'] == TCP:
             print("TCP SERVER STARTED")
-            tcp_server(ctrl_socket)  # Call the TCP server function
+            tcp_server(ctrl_socket, cmd_structure)  # Call the TCP server function
             # Implement tcp_server()
     elif cmd_structure['client_role'] == DOWNLINK:
         print("DOWNLINK:")
